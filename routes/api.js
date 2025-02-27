@@ -4,7 +4,7 @@ const fetch = require('node-fetch');
 const crypto = require('crypto');
 const Stock = require('../models/Stock');
 
-// Helper function to anonymize IP using an MD5 hash
+// Helper function to anonymize IP using an MD5 hash.
 const anonymizeIP = (ip) => crypto.createHash('md5').update(ip).digest('hex');
 
 module.exports = function (app) {
@@ -13,7 +13,7 @@ module.exports = function (app) {
       try {
         let { stock, like } = req.query;
         
-        // Get user's IP (or use x-forwarded-for if available)
+        // Get user's IP (or x-forwarded-for if available).
         const userIp = req.ip || req.headers['x-forwarded-for'] || '';
         const ipHash = anonymizeIP(userIp);
 
@@ -21,12 +21,10 @@ module.exports = function (app) {
           return res.status(400).json({ error: 'Stock parameter is required' });
         }
 
-        // Helper function to process a single stock symbol
+        // Helper function to process a single stock symbol.
         const processStock = async (symbol, likeFlag) => {
-          // Normalize symbol to uppercase
           symbol = symbol.toUpperCase();
 
-          // Find or create the stock document
           let stockDoc = await Stock.findOne({ stock: symbol });
           if (!stockDoc) {
             stockDoc = new Stock({ stock: symbol, likes: 0, ips: [] });
@@ -34,14 +32,13 @@ module.exports = function (app) {
           if (!Array.isArray(stockDoc.ips)) {
             stockDoc.ips = [];
           }
-          // Update likes if like is requested and this IP hasn't liked before
           if (likeFlag && !stockDoc.ips.includes(ipHash)) {
             stockDoc.likes++;
             stockDoc.ips.push(ipHash);
             await stockDoc.save();
           }
           
-          // Fetch live price from the freeCodeCamp proxy
+          // Fetch live price from the freeCodeCamp proxy.
           const response = await fetch(`https://stock-price-checker-proxy.freecodecamp.rocks/v1/stock/${symbol}/quote`);
           const text = await response.text();
           let data;
@@ -49,13 +46,11 @@ module.exports = function (app) {
             data = JSON.parse(text);
           } catch (e) {
             console.error("Error parsing JSON from proxy. Response text:", text);
-            // Return fallback if error occurs
             return { stock: symbol, price: NaN, likes: stockDoc.likes };
           }
           return { stock: symbol, price: Number(data.latestPrice), likes: stockDoc.likes };
         };
 
-        // Check if two stocks were provided (an array)
         if (Array.isArray(stock)) {
           const likeFlag = (like === 'true' || like === true);
           const promises = stock.map(s => processStock(s, likeFlag));
@@ -72,7 +67,6 @@ module.exports = function (app) {
             ]
           });
         } else {
-          // Single stock request
           const likeFlag = (like === 'true' || like === true);
           const result = await processStock(stock, likeFlag);
           return res.json({
@@ -89,6 +83,7 @@ module.exports = function (app) {
       }
     });
 };
+
 
 
 

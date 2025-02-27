@@ -12,17 +12,14 @@ const runner            = require('./test-runner');
 
 const app = express();
 
-// Use Helmet for security but disable its built‑in CSP
-app.use(helmet({
-  contentSecurityPolicy: false
-}));
+// Use Helmet for other security headers but disable its default CSP
+app.use(helmet({ contentSecurityPolicy: false }));
 
-// Set a custom Content Security Policy header.
-// This header now includes connect-src 'self' so that AJAX/fetch requests from your domain are allowed.
+// Set a custom Content Security Policy that ONLY allows scripts and CSS from your server.
 app.use((req, res, next) => {
   res.setHeader(
     "Content-Security-Policy",
-    "default-src 'self'; connect-src 'self'; script-src 'self'; style-src 'self'"
+    "script-src 'self'; style-src 'self'"
   );
   next();
 });
@@ -32,7 +29,7 @@ app.use(cors({ origin: '*' })); // For FCC testing purposes only
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Connect to MongoDB – ensure your .env has a valid MONGO_URI or fallback to localhost
+// Connect to MongoDB – ensure your .env file has a valid MONGO_URI or fallback to localhost
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/stockChecker';
 mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
   .then(() => console.log('MongoDB connected'))
@@ -46,7 +43,7 @@ app.route('/')
 // FCC testing routes
 fccTestingRoutes(app);
 
-// IMPORTANT: Instead of mounting as middleware, pass the app directly:
+// IMPORTANT: Pass your Express app to your API routes function.
 apiRoutes(app);
 
 // 404 Not Found Middleware
