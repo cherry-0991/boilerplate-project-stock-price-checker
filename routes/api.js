@@ -13,7 +13,7 @@ module.exports = function (app) {
       try {
         let { stock, like } = req.query;
         
-        // Get the user's IP (or use x-forwarded-for)
+        // Get user's IP (or use x-forwarded-for if available)
         const userIp = req.ip || req.headers['x-forwarded-for'] || '';
         const ipHash = anonymizeIP(userIp);
 
@@ -21,9 +21,9 @@ module.exports = function (app) {
           return res.status(400).json({ error: 'Stock parameter is required' });
         }
 
-        // Helper to process a single stock
+        // Helper function to process a single stock symbol
         const processStock = async (symbol, likeFlag) => {
-          // Normalize the stock symbol to uppercase
+          // Normalize symbol to uppercase
           symbol = symbol.toUpperCase();
 
           // Find or create the stock document
@@ -31,18 +31,17 @@ module.exports = function (app) {
           if (!stockDoc) {
             stockDoc = new Stock({ stock: symbol, likes: 0, ips: [] });
           }
-          // Ensure ips is an array
           if (!Array.isArray(stockDoc.ips)) {
             stockDoc.ips = [];
           }
-          // If like is true and IP hasn't liked before, update likes
+          // Update likes if like is requested and this IP hasn't liked before
           if (likeFlag && !stockDoc.ips.includes(ipHash)) {
             stockDoc.likes++;
             stockDoc.ips.push(ipHash);
             await stockDoc.save();
           }
           
-          // Fetch live price from the proxy
+          // Fetch live price from the freeCodeCamp proxy
           const response = await fetch(`https://stock-price-checker-proxy.freecodecamp.rocks/v1/stock/${symbol}/quote`);
           const text = await response.text();
           let data;
@@ -50,14 +49,13 @@ module.exports = function (app) {
             data = JSON.parse(text);
           } catch (e) {
             console.error("Error parsing JSON from proxy. Response text:", text);
-            // Return a fallback in case of error
+            // Return fallback if error occurs
             return { stock: symbol, price: NaN, likes: stockDoc.likes };
           }
-
           return { stock: symbol, price: Number(data.latestPrice), likes: stockDoc.likes };
         };
 
-        // If two stocks are provided
+        // Check if two stocks were provided (an array)
         if (Array.isArray(stock)) {
           const likeFlag = (like === 'true' || like === true);
           const promises = stock.map(s => processStock(s, likeFlag));
@@ -91,5 +89,6 @@ module.exports = function (app) {
       }
     });
 };
+
 
 

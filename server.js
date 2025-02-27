@@ -1,4 +1,4 @@
- 'use strict';
+'use strict';
 require('dotenv').config();
 const express     = require('express');
 const bodyParser  = require('body-parser');
@@ -12,12 +12,17 @@ const runner            = require('./test-runner');
 
 const app = express();
 
-// Use Helmet for setting various security headers (other than CSP)
-app.use(helmet());
+// Use Helmet for security but disable its default content security policy
+app.use(helmet({
+  contentSecurityPolicy: false
+}));
 
-// Manually set Content Security Policy so that only scripts and CSS from your server are allowed
+// Manually set Content Security Policy so only scripts and CSS from your server are allowed
 app.use((req, res, next) => {
-  res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'");
+  res.setHeader(
+    "Content-Security-Policy",
+    "default-src 'self'; script-src 'self'; style-src 'self'"
+  );
   next();
 });
 
@@ -26,7 +31,7 @@ app.use(cors({ origin: '*' })); // For FCC testing purposes only
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Connect to MongoDB – ensure you have MongoDB running locally or use a remote URI via .env
+// Connect to MongoDB – use your .env MONGO_URI or fallback to localhost
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/stockChecker';
 mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
   .then(() => console.log('MongoDB connected'))
@@ -69,6 +74,7 @@ if (require.main === module) {
 }
 
 module.exports = app;
+
 
 
 
