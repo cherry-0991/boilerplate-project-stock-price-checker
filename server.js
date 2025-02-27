@@ -1,10 +1,10 @@
-'use strict';
+ 'use strict';
 require('dotenv').config();
 const express     = require('express');
 const bodyParser  = require('body-parser');
 const cors        = require('cors');
-const helmet      = require('helmet');      // Using latest Helmet
-const mongoose    = require('mongoose');    // Mongoose for MongoDB
+const helmet      = require('helmet');
+const mongoose    = require('mongoose');
 
 const apiRoutes         = require('./routes/api.js');
 const fccTestingRoutes  = require('./routes/fcctesting.js');
@@ -12,61 +12,51 @@ const runner            = require('./test-runner');
 
 const app = express();
 
-// Use Helmet for security.
+// Use Helmet for setting various security headers (other than CSP)
 app.use(helmet());
 
-// Set Content Security Policy so only your own scripts and styles load.
-app.use(
-  helmet.contentSecurityPolicy({
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'"],
-      styleSrc: ["'self'"]
-    }
-  })
-);
+// Manually set Content Security Policy so that only scripts and CSS from your server are allowed
+app.use((req, res, next) => {
+  res.setHeader("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'");
+  next();
+});
 
 app.use('/public', express.static(process.cwd() + '/public'));
-app.use(cors({origin: '*'})); // For FCC testing purposes only
-
+app.use(cors({ origin: '*' })); // For FCC testing purposes only
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
-// Connect to MongoDB (update your URI as needed)
-// If running locally, ensure that MongoDB is running on localhost:27017,
-// or use a remote connection string (e.g., from MongoDB Atlas) via process.env.MONGO_URI.
+// Connect to MongoDB – ensure you have MongoDB running locally or use a remote URI via .env
 const MONGO_URI = process.env.MONGO_URI || 'mongodb://localhost:27017/stockChecker';
 mongoose.connect(MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
   .then(() => console.log('MongoDB connected'))
   .catch(err => console.error('MongoDB connection error:', err));
 
-// Index page (static HTML)
 app.route('/')
-  .get(function (req, res) {
+  .get((req, res) => {
     res.sendFile(process.cwd() + '/views/index.html');
   });
 
-// For FCC testing purposes
+// FCC testing routes
 fccTestingRoutes(app);
 
-// Routing for API 
-// Call the function directly with app instead of mounting as middleware.
+// Pass your Express app to your API route function
 apiRoutes(app);
 
 // 404 Not Found Middleware
-app.use(function(req, res, next) {
+app.use((req, res, next) => {
   res.status(404)
     .type('text')
     .send('Not Found');
 });
 
-// Only start the server if this module is run directly
+// Only start the server if this module is run directly.
 if (require.main === module) {
-  const listener = app.listen(process.env.PORT || 3000, function () {
+  const listener = app.listen(process.env.PORT || 3000, () => {
     console.log('Your app is listening on port ' + listener.address().port);
     if (process.env.NODE_ENV === 'test') {
       console.log('Running Tests...');
-      setTimeout(function () {
+      setTimeout(() => {
         try {
           runner.run();
         } catch (e) {
@@ -78,7 +68,8 @@ if (require.main === module) {
   });
 }
 
-module.exports = app; 
+module.exports = app;
+
 
 
 
