@@ -4,7 +4,7 @@ const fetch = require('node-fetch');
 const crypto = require('crypto');
 const Stock = require('../models/Stock');
 
-// Helper function to anonymize IP (MD5 hash)
+// Helper function to anonymize IP (using MD5 hash)
 const anonymizeIP = (ip) => crypto.createHash('md5').update(ip).digest('hex');
 
 module.exports = function (app) {
@@ -14,59 +14,57 @@ module.exports = function (app) {
       try {
         let { stock, like } = req.query;
         
-        // Get user's IP (behind a proxy, we might use x-forwarded-for).
+        // Get user's IP (if behind a proxy, x-forwarded-for may be used)
         const userIp = req.ip || req.headers['x-forwarded-for'] || '';
         const ipHash = anonymizeIP(userIp);
 
-        // If no stock symbol provided, respond with error
         if (!stock) {
           return res.status(400).json({ error: 'Stock parameter is required' });
         }
 
-        // Helper function to fetch or create a stock in DB, update likes, and get price
+        // Helper function to process a single stock symbol.
         const processStock = async (symbol, likeFlag) => {
-          // Normalize stock symbol to uppercase
           symbol = symbol.toUpperCase();
 
-          // Find or create a Stock doc in Mongo
+          // Find (or create) a Stock document in MongoDB
           let stockDoc = await Stock.findOne({ stock: symbol });
           if (!stockDoc) {
             stockDoc = new Stock({ stock: symbol, likes: 0, ips: [] });
           }
-
-          // If "like" is requested and user hasn't liked before, increment likes
+          // Ensure that the 'ips' property is an array
+          if (!Array.isArray(stockDoc.ips)) {
+            stockDoc.ips = [];
+          }
+          // If like is requested and this IP hasn't liked the stock before, update likes.
           if (likeFlag && !stockDoc.ips.includes(ipHash)) {
             stockDoc.likes++;
             stockDoc.ips.push(ipHash);
             await stockDoc.save();
           }
+          
+          // Fetch live price from the freeCodeCamp proxy.
+          const response = await fetch(`https://stock-price-checker-proxy.freecodecamp.rocks/v1/stock/${symbol}/quote`);
+          const text = await response.text();
+          let data;
+          try {
+            data = JSON.parse(text);
+          } catch (e) {
+            console.error("Error parsing JSON from proxy. Response text:", text);
+            // Return a fallback object in case of error. You could also choose to throw an error.
+            return { stock: symbol, price: NaN, likes: stockDoc.likes };
+          }
 
-          // Fetch live price from the freeCodeCamp proxy
-          const response = await fetch(
-            `https://stock-price-checker-proxy.freecodecamp.rocks/v1/stock/${symbol}/quote`
-          );
-          const data = await response.json();
-
-          // Return the data we need for the final response
-          return {
-            stock: symbol,
-            price: data.latestPrice,
-            likes: stockDoc.likes
-          };
+          return { stock: symbol, price: data.latestPrice, likes: stockDoc.likes };
         };
 
-        // If "stock" is an array, we have two stocks
+        // If the "stock" parameter is an array, we have two stocks.
         if (Array.isArray(stock)) {
           const likeFlag = (like === 'true' || like === true);
-          
-          // Process both in parallel
           const promises = stock.map(s => processStock(s, likeFlag));
           const results = await Promise.all(promises);
 
-          // results is an array [stock1Data, stock2Data]
           const [stock1, stock2] = results;
-
-          // Calculate relative likes
+          // Calculate relative likes between the two stocks.
           const rel_likes1 = stock1.likes - stock2.likes;
           const rel_likes2 = stock2.likes - stock1.likes;
 
@@ -77,10 +75,9 @@ module.exports = function (app) {
             ]
           });
         } else {
-          // Single stock scenario
+          // Process single stock request.
           const likeFlag = (like === 'true' || like === true);
           const result = await processStock(stock, likeFlag);
-
           return res.json({
             stockData: {
               stock: result.stock,
@@ -95,3 +92,4 @@ module.exports = function (app) {
       }
     });
 };
+
