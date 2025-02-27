@@ -1,88 +1,75 @@
-'use strict';
-
-const fetch = require('node-fetch');
-const crypto = require('crypto');
+const express = require('express');
+const router = express.Router();
+const axios = require('axios');
 const Stock = require('../models/Stock');
 
-// Helper function to anonymize IP using an MD5 hash.
-const anonymizeIP = (ip) => crypto.createHash('md5').update(ip).digest('hex');
+const proxyUrl = 'https://stock-price-checker-proxy.freecodecamp.rocks/v1/stock';
 
-module.exports = function (app) {
-  app.route('/api/stock-prices')
-    .get(async function (req, res) {
-      try {
-        let { stock, like } = req.query;
-        
-        // Get user's IP (or x-forwarded-for if available).
-        const userIp = req.ip || req.headers['x-forwarded-for'] || '';
-        const ipHash = anonymizeIP(userIp);
+function anonymizeIP(ip) {
+  if (ip.includes('.')) {
+    const parts = ip.split('.');
+    if (parts.length === 4) {
+      parts[3] = '0';
+      return parts.join('.');
+    }
+  } else {
+    const parts = ip.split(':');
+    return parts.slice(0, 3).join(':') + '::0';
+  }
+  return ip;
+}
 
-        if (!stock) {
-          return res.status(400).json({ error: 'Stock parameter is required' });
-        }
+router.get('/stock-prices', async (req, res) => {
+  try {
+    const { stock, like } = req.query;
+    if (!stock) return res.status(400).json({ error: 'Missing stock symbol(s)' });
 
-        // Helper function to process a single stock symbol.
-        const processStock = async (symbol, likeFlag) => {
-          symbol = symbol.toUpperCase();
+    const symbols = Array.isArray(stock) ? stock : [stock];
+    if (symbols.length > 2) return res.status(400).json({ error: 'Maximum of 2 stocks allowed' });
 
-          let stockDoc = await Stock.findOne({ stock: symbol });
-          if (!stockDoc) {
-            stockDoc = new Stock({ stock: symbol, likes: 0, ips: [] });
-          }
-          if (!Array.isArray(stockDoc.ips)) {
-            stockDoc.ips = [];
-          }
-          if (likeFlag && !stockDoc.ips.includes(ipHash)) {
-            stockDoc.likes++;
-            stockDoc.ips.push(ipHash);
-            await stockDoc.save();
-          }
-          
-          // Fetch live price from the freeCodeCamp proxy.
-          const response = await fetch(`https://stock-price-checker-proxy.freecodecamp.rocks/v1/stock/${symbol}/quote`);
-          const text = await response.text();
-          let data;
-          try {
-            data = JSON.parse(text);
-          } catch (e) {
-            console.error("Error parsing JSON from proxy. Response text:", text);
-            return { stock: symbol, price: NaN, likes: stockDoc.likes };
-          }
-          return { stock: symbol, price: Number(data.latestPrice), likes: stockDoc.likes };
-        };
+    const ip = req.ip;
+    const anonymizedIP = anonymizeIP(ip);
 
-        if (Array.isArray(stock)) {
-          const likeFlag = (like === 'true' || like === true);
-          const promises = stock.map(s => processStock(s, likeFlag));
-          const results = await Promise.all(promises);
+    const stockData = [];
+    for (const symbol of symbols) {
+      const upperSymbol = symbol.toUpperCase();
+      const response = await axios.get(`${proxyUrl}/${upperSymbol}/quote`);
+      if (!response.data.latestPrice) throw new Error('Invalid stock symbol');
 
-          const [stock1, stock2] = results;
-          const rel_likes1 = stock1.likes - stock2.likes;
-          const rel_likes2 = stock2.likes - stock1.likes;
+      let stockDoc = await Stock.findOne({ symbol: upperSymbol });
+      if (!stockDoc) stockDoc = new Stock({ symbol: upperSymbol, likes: [] });
 
-          return res.json({
-            stockData: [
-              { stock: stock1.stock, price: stock1.price, rel_likes: rel_likes1 },
-              { stock: stock2.stock, price: stock2.price, rel_likes: rel_likes2 }
-            ]
-          });
-        } else {
-          const likeFlag = (like === 'true' || like === true);
-          const result = await processStock(stock, likeFlag);
-          return res.json({
-            stockData: {
-              stock: result.stock,
-              price: result.price,
-              likes: result.likes
-            }
-          });
-        }
-      } catch (err) {
-        console.error(err);
-        return res.status(500).json({ error: 'Internal server error' });
+      if (like === 'true' && !stockDoc.likes.includes(anonymizedIP)) {
+        stockDoc.likes.push(anonymizedIP);
+        await stockDoc.save();
       }
-    });
-};
+
+      stockData.push({
+        symbol: upperSymbol,
+        price: response.data.latestPrice,
+        likes: stockDoc.likes.length
+      });
+    }
+
+    if (stockData.length === 1) {
+      res.json({ stockData: { stock: stockData[0].symbol, price: stockData[0].price, likes: stockData[0].likes } });
+    } else {
+      const relLikes1 = stockData[0].likes - stockData[1].likes;
+      const relLikes2 = stockData[1].likes - stockData[0].likes;
+      res.json({
+        stockData: [
+          { stock: stockData[0].symbol, price: stockData[0].price, rel_likes: relLikes1 },
+          { stock: stockData[1].symbol, price: stockData[1].price, rel_likes: relLikes2 }
+        ]
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+module.exports = router;
+
 
 
 
